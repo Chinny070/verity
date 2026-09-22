@@ -115,20 +115,21 @@ export async function writeContract(functionName, args = [], value) {
       kind: "not_configured",
     });
   }
+  // genlayer-js 1.2.0's client.writeContract() takes `value` directly (a
+  // bigint) -- there is no estimateTransactionFeesForWrite()/`fees` step
+  // in the current API (that was the 0.9.x-era shape; calling it on 1.2.0
+  // throws "not a function"). Non-payable methods still require the
+  // field, so default to 0n rather than omitting it.
   const call = {
     address: CONTRACT_ADDRESS,
     functionName,
     args,
-    ...(value !== undefined ? { value } : {}),
+    value: value !== undefined ? value : 0n,
   };
 
   let txId;
   try {
-    const estimate = await writeClient.estimateTransactionFeesForWrite(call);
-    txId = await writeClient.writeContract({
-      ...call,
-      fees: { distribution: estimate.distribution, feeValue: estimate.feeValue },
-    });
+    txId = await writeClient.writeContract(call);
   } catch (err) {
     const msg = String(err?.message || err);
     if (/user rejected|user denied|denied transaction/i.test(msg)) {
@@ -165,4 +166,38 @@ export async function writeContract(functionName, args = [], value) {
   }
 
   return { txId, receipt };
+}
+
+// Wallet-connected contract DEPLOYMENT (distinct from writeContract, which
+// calls a method on an already-deployed contract). Used by the manual
+// wallet-deploy path documented in docs/MANUAL_DEPLOYMENT.md -- not used
+// by the main app UI itself, which only ever talks to the already-
+// deployed CONTRACT_ADDRESS. Exported separately so it can be driven from
+// a minimal script/page without pulling in the rest of the app's state.
+export async function deployContract(code, args = []) {
+  if (!writeClient) {
+    throw new VerityTxError("Connect a wallet before deploying.", { kind: "no_wallet" });
+  }
+  let txId;
+  try {
+    txId = await writeClient.deployContract({ code, args });
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (/user rejected|user denied|denied transaction/i.test(msg)) {
+      throw new VerityTxError("Wallet action was rejected.", { kind: "wallet_rejected" });
+    }
+    throw new VerityTxError("Could not submit the deployment (network or wallet error).", {
+      kind: "submit_failed",
+    });
+  }
+  const receipt = await writeClient.waitForTransactionReceipt({ hash: txId, status: "ACCEPTED" });
+  if (!txExecutionSucceeded(receipt)) {
+    throw new VerityTxError("Deployment was rejected by GenVM (constructor execution failed).", {
+      kind: "execution_failed",
+      txId,
+      receipt,
+    });
+  }
+  const contractAddress = receipt?.data?.contract_address;
+  return { txId, contractAddress, receipt };
 }
