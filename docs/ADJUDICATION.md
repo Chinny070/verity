@@ -144,3 +144,50 @@ before it can touch `agreement.canonical_outcome`:
 - **Timeout/refund path untouched.** `refund()` was not modified by this
   change; it was re-verified live after redeploying the updated contract
   (see build report).
+
+## The event_status bug: proof this was tested against real heterogeneous validators, not designed in theory
+
+The first live run of the custom leader/validator pattern (tx
+`0x049e6833f3f703eca813b031fb40ac8b523a43802d456cc60b3f5b507060bc2e`,
+freeze -> adjudicate against the 96th Academy Awards / Wikipedia
+evidence) reached only 1 `agree` vote out of 5 -- consensus failed and
+`adjudicate()` never committed. This was investigated, not papered over,
+by fetching the full transaction receipt (`genlayer receipt <hash>`) and
+comparing the leader's actual returned structured output against the
+per-validator votes:
+
+- The leader's `eq_outputs` showed `"event_status": "settled"`.
+- `event_status` was, at that point, an unconstrained free-text `string`
+  field in the prompt schema.
+- Different validator LLM families (that run observed `prd-grok`,
+  `prd-gpt-5-4`, `prd-gpt-oss`, `prd-mistral`, `prd-glm` across leader +
+  4 validators) each independently phrase a "yes, this already
+  happened" judgment differently -- `"settled"`, `"final"`,
+  `"concluded"`, etc. -- so `validator_fn`'s exact `==` check on
+  `event_status` failed even between validators that substantively
+  agreed on every other field.
+
+Fix: `event_status` was constrained to a 4-value enum (`SETTLED` /
+`NOT_YET_OCCURRED` / `DISPUTED` / `UNKNOWN`) in the prompt, so
+independent evaluations converge onto the same token. **This is not a
+loosening of the equivalence criteria** -- the comparison in
+`validator_fn` is still exact `==` on every decision field, with no
+tolerance added. It tightens the *output schema* so exact-match is
+actually achievable for a field that is inherently a closed judgment
+call, not free prose.
+
+Re-run immediately after with the same frozen contract otherwise
+unchanged: `adjudicate()` reached 3/5 `agree` (quorum), committed
+`CONFIRMED_TRUE`, and the full lifecycle (settle -> withdraw) completed
+successfully. Real transaction hashes for both the failing and the
+passing run are preserved in this session's git history
+(`606f452` design, `4300d2e` this fix) and in
+`docs/RELEASE_VERIFICATION.md` for the passing run.
+
+The lesson generalizes: **any free-text field used in an exact-match
+equivalence principle across a heterogeneous LLM validator pool must be
+constrained to a closed enum (or otherwise normalized) before it can be
+expected to converge.** Boolean and fixed-enum fields
+(`outcome`, `temporal_validity`, `subject_match`, `category_match`,
+`evidence_sufficiency`) did not need this fix -- only the one field that
+was still open-ended text did.
