@@ -1,11 +1,13 @@
 // VERITY frontend configuration.
 //
-// CONTRACT_ADDRESS points at the frozen, verified StudioNet reference
-// deployment (see docs/RELEASE_VERIFICATION.md for the exact source
-// SHA-256, git commit, and every real transaction hash of the full
-// hosted lifecycle -- CREATE/MATCH/FREEZE/ADJUDICATE/SETTLE/WITHDRAW --
-// that was run live against this exact contract instance).
-export const CONTRACT_ADDRESS = "0xd0E0ccd9Fd5BB364A439332EFdf397FA74004655";
+// CONTRACT_ADDRESS points at the user's own final StudioNet deployment,
+// deployed via a connected browser wallet per docs/MANUAL_DEPLOYMENT.md.
+// Verified against the frozen release candidate before this was set:
+// schema (`genlayer schema`) matched exactly, and the deployed source
+// (`genlayer code`) hashes to the same frozen SHA-256
+// 0d02adac2b5ea52a637c6b09dfdc65fd0388b8144da5e3ac97e6bf7b70ff6f6e --
+// see docs/FINAL_DEPLOYMENT_RECORD.md for the full record.
+export const CONTRACT_ADDRESS = "0xAAc022f491ADE6b09637427Bb9d8B4BaF85d718D";
 
 // Chain preset name from genlayer-js/chains. StudioNet per product spec
 // section 2/18 ("current StudioNet target").

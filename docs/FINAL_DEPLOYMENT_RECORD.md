@@ -18,17 +18,17 @@ not a record of a deployment that has happened yet.
 | Network | StudioNet |
 | Chain ID | 61999 |
 | RPC | https://studio.genlayer.com/api |
-| Deployer public address | _(fill in)_ |
+| Deployer public address | _(fill in — the MetaMask address you deployed from)_ |
 | Contract source file | `contracts/verity.py` |
-| Contract SHA-256 | `0d02adac2b5ea52a637c6b09dfdc65fd0388b8144da5e3ac97e6bf7b70ff6f6e` *(must match — see docs/MANUAL_DEPLOYMENT.md step 13)* |
+| Contract SHA-256 | `0d02adac2b5ea52a637c6b09dfdc65fd0388b8144da5e3ac97e6bf7b70ff6f6e` *(confirmed match — see below)* |
 | Git commit (frozen contract) | `b7300eba9ea4b29c2ab44dd3bf4a744a741c34f9` |
 | Depends / runner tag | `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6` |
-| **Contract address** | _(fill in)_ |
-| **Deployment transaction hash** | _(fill in)_ |
-| Deployment date/time (UTC) | _(fill in)_ |
-| Schema check performed (step 13a) | YES / NO |
-| Source check performed (step 13b) | YES / NO |
-| Explorer link | https://genlayer-explorer.vercel.app/?search=_(contract address)_ |
+| **Contract address** | `0xAAc022f491ADE6b09637427Bb9d8B4BaF85d718D` |
+| **Deployment transaction hash** | _(not provided yet — fill in if you have it, e.g. from MetaMask's activity tab or the Studio IDE's own deployment confirmation)_ |
+| Deployment date/time (UTC) | 2026-09-22 (exact time not provided; update if known) |
+| Schema check performed (step 13a) | YES — `genlayer schema 0xAAc022f491ADE6b09637427Bb9d8B4BaF85d718D` returned all 11 methods with matching params/types |
+| Source check performed (step 13b) | YES — `genlayer code 0xAAc022f491ADE6b09637427Bb9d8B4BaF85d718D` hashes to the exact frozen SHA-256 above (confirmed byte-for-byte after normalizing only the CLI output's own trailing-newline formatting) |
+| Explorer link | https://genlayer-explorer.vercel.app/?search=0xAAc022f491ADE6b09637427Bb9d8B4BaF85d718D |
 
 ## Smoke test — main lifecycle
 
@@ -88,5 +88,14 @@ not a record of a deployment that has happened yet.
 | Field | Value |
 |---|---|
 | File | `frontend/src/config.js` |
-| `CONTRACT_ADDRESS` updated to new deployment | YES / NO |
-| `npm run build` reconfirmed clean after update | YES / NO |
+| `CONTRACT_ADDRESS` updated to new deployment | YES |
+| `npm run build` reconfirmed clean after update | YES |
+
+Note: `frontend/src/config.js`'s `REVIEWER_DEMO_AGREEMENT_ID` still
+points at agreement `1`, which existed on the *previous* reference
+deployment (`0xd0E0ccd9Fd5BB364A439332EFdf397FA74004655`), not on this
+new contract. Until you create at least one agreement on this new
+deployment (e.g. via the main smoke test), the frontend's "Reviewer
+Demo" panel will show an error/empty state for agreement `1` here --
+this is expected, not a bug, and will resolve itself once your smoke
+test creates agreement `1` on this contract.
