@@ -1,7 +1,8 @@
-# { "Depends": "py-genlayer:test" }
+# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from genlayer import *
 
 # --- VERITY constants -------------------------------------------------
@@ -238,7 +239,12 @@ class Contract(gl.Contract):
     # -- internal helpers --------------------------------------------
 
     def _now(self) -> int:
-        return int(gl.message.datetime.timestamp())
+        # GenVM injects a deterministic, consensus-agreed wall-clock time as
+        # gl.message_raw["datetime"], an ISO-8601 string (e.g.
+        # "2026-09-22T11:59:15.341380+00:00"); gl.message itself has no
+        # `datetime` attribute. Every validator computes the exact same
+        # value for a given transaction, so parsing it is safe/deterministic.
+        return int(datetime.fromisoformat(gl.message_raw["datetime"]).timestamp())
 
     def _get_agreement(self, agreement_id: u256) -> Agreement:
         if agreement_id not in self.agreements:

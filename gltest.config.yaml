@@ -1,0 +1,7 @@
+# GenLayer test harness config for VERITY.
+# StudioNet is the default target: hosted, gasless GenVM validator network.
+# See docs/VERITY_PRODUCT_SPEC.md / STACK.md for why Docker/local `genlayer up`
+# is not required for this project.
+networks:
+  default: studionet
+  studionet: {}

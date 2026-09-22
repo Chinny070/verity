@@ -9,18 +9,21 @@ LLM access configured; where noted, a test targets only state-machine
 behaviour reachable without a live web fetch (e.g. timeout-before-any-
 evidence refund) so it can run against a bare local node.
 
-Run with a local node up (`genlayer up`):
-    gltest tests/integration -v
+Run against StudioNet (the default target configured in
+gltest.config.yaml -- hosted, gasless, no Docker/`genlayer up` needed):
+    python -m pytest tests/integration -v
 
-Status: written against the official `gltest` API surface documented in
-the current `genlayer new` boilerplate (get_contract_factory,
-default_account, load_fixture, tx_execution_succeeded). NOT executed in
-this environment -- see README.md "What Was Actually Tested" for why.
+Status: written against and verified live against the `gltest` 0.29.2 /
+genlayer-py 0.16.3 API surface (get_contract_factory, get_default_account,
+load_fixture, tx_execution_succeeded, ContractFunction.call()/.transact()).
+Read-only methods are invoked as `contract.method(args=[...]).call()`;
+state-changing methods as `contract.connect(account).method(args=[...])
+.transact(value=...)`.
 """
 
 import time
 
-from gltest import get_contract_factory, get_accounts, default_account
+from gltest import get_contract_factory, create_accounts, get_default_account
 from gltest.helpers import load_fixture
 from gltest.assertions import tx_execution_succeeded, tx_execution_failed
 
@@ -28,7 +31,7 @@ from gltest.assertions import tx_execution_succeeded, tx_execution_failed
 def deploy_contract():
     factory = get_contract_factory("Contract")
     contract = factory.deploy(args=[])
-    assert contract.get_agreement_count(args=[]) == 0
+    assert contract.get_agreement_count(args=[]).call() == 0
     return contract
 
 
@@ -60,72 +63,89 @@ def _create_args(**overrides):
     ]
 
 
+def _as(contract, account):
+    """Bind `contract` to `account` for a state-changing call."""
+    return contract.connect(account)
+
+
 def test_create_and_match_agreement():
     contract = load_fixture(deploy_contract)
-    accounts = get_accounts()
+    accounts = create_accounts(3)
     creator, counterparty = accounts[0], accounts[1]
 
-    create_result = contract.create_agreement(
-        args=_create_args(), value=10**18, account=creator
-    )
+    create_result = _as(contract, creator).create_agreement(
+        args=_create_args()
+    ).transact(value=10**18)
     assert tx_execution_succeeded(create_result)
 
-    agreement = contract.get_agreement(args=[1])
+    agreement = contract.get_agreement(args=[1]).call()
     assert agreement["status"] == "CREATED"
     assert agreement["creator_position"] == "YES"
 
-    match_result = contract.match_agreement(
-        args=[1], value=10**18, account=counterparty
-    )
+    match_result = _as(contract, counterparty).match_agreement(
+        args=[1]
+    ).transact(value=10**18)
     assert tx_execution_succeeded(match_result)
 
-    agreement = contract.get_agreement(args=[1])
+    agreement = contract.get_agreement(args=[1]).call()
     assert agreement["status"] == "MATCHED"
 
 
 def test_self_match_rejected():
     contract = load_fixture(deploy_contract)
-    accounts = get_accounts()
+    accounts = create_accounts(3)
     creator = accounts[0]
-    contract.create_agreement(args=_create_args(), value=10**18, account=creator)
-    result = contract.match_agreement(args=[1], value=10**18, account=creator)
+    _as(contract, creator).create_agreement(args=_create_args()).transact(
+        value=10**18
+    )
+    result = _as(contract, creator).match_agreement(args=[1]).transact(
+        value=10**18
+    )
     assert tx_execution_failed(result)
 
 
 def test_wrong_stake_match_rejected():
     contract = load_fixture(deploy_contract)
-    accounts = get_accounts()
+    accounts = create_accounts(3)
     creator, counterparty = accounts[0], accounts[1]
-    contract.create_agreement(args=_create_args(), value=10**18, account=creator)
-    result = contract.match_agreement(
-        args=[1], value=5 * 10**17, account=counterparty
+    _as(contract, creator).create_agreement(args=_create_args()).transact(
+        value=10**18
+    )
+    result = _as(contract, counterparty).match_agreement(args=[1]).transact(
+        value=5 * 10**17
     )
     assert tx_execution_failed(result)
 
 
 def test_duplicate_match_rejected():
     contract = load_fixture(deploy_contract)
-    accounts = get_accounts()
+    accounts = create_accounts(3)
     creator, counterparty, third = accounts[0], accounts[1], accounts[2]
-    contract.create_agreement(args=_create_args(), value=10**18, account=creator)
-    ok = contract.match_agreement(args=[1], value=10**18, account=counterparty)
+    _as(contract, creator).create_agreement(args=_create_args()).transact(
+        value=10**18
+    )
+    ok = _as(contract, counterparty).match_agreement(args=[1]).transact(
+        value=10**18
+    )
     assert tx_execution_succeeded(ok)
-    dup = contract.match_agreement(args=[1], value=10**18, account=third)
+    dup = _as(contract, third).match_agreement(args=[1]).transact(value=10**18)
     assert tx_execution_failed(dup)
 
 
 def test_unmatched_cancel_and_refund_withdraw():
     contract = load_fixture(deploy_contract)
-    accounts = get_accounts()
+    accounts = create_accounts(3)
     creator = accounts[0]
-    contract.create_agreement(args=_create_args(), value=10**18, account=creator)
-    cancel = contract.cancel_unmatched(args=[1], account=creator)
+    _as(contract, creator).create_agreement(args=_create_args()).transact(
+        value=10**18
+    )
+    cancel = _as(contract, creator).cancel_unmatched(args=[1]).transact()
     assert tx_execution_succeeded(cancel)
-    agreement = contract.get_agreement(args=[1])
+    agreement = contract.get_agreement(args=[1]).call()
     assert agreement["status"] == "CANCELLED"
-    withdraw = contract.withdraw(args=[1], account=creator)
+    withdraw = _as(contract, creator).withdraw(args=[1]).transact()
     assert tx_execution_succeeded(withdraw)
-    dup_withdraw = contract.withdraw(args=[1], account=creator)
+    dup_withdraw = _as(contract, creator).withdraw(args=[1]).transact()
     assert tx_execution_failed(dup_withdraw)
 
 
@@ -134,7 +154,7 @@ def test_no_evidence_timeout_refund_and_withdrawal():
     resolution deadline passes, refund() must be permissionless and both
     principals must be independently withdrawable exactly once."""
     contract = load_fixture(deploy_contract)
-    accounts = get_accounts()
+    accounts = create_accounts(3)
     creator, counterparty, stranger = accounts[0], accounts[1], accounts[2]
 
     now = int(time.time())
@@ -144,34 +164,36 @@ def test_no_evidence_timeout_refund_and_withdrawal():
         resolution_not_before=now + 3,
         resolution_deadline=now + 5,
     )
-    contract.create_agreement(args=args, value=10**18, account=creator)
-    contract.match_agreement(args=[1], value=10**18, account=counterparty)
+    _as(contract, creator).create_agreement(args=args).transact(value=10**18)
+    _as(contract, counterparty).match_agreement(args=[1]).transact(value=10**18)
 
     time.sleep(6)  # cross the resolution deadline with no evidence ever frozen
 
     # permissionless: a stranger triggers the refund
-    refund_result = contract.refund(args=[1], account=stranger)
+    refund_result = _as(contract, stranger).refund(args=[1]).transact()
     assert tx_execution_succeeded(refund_result)
-    agreement = contract.get_agreement(args=[1])
+    agreement = contract.get_agreement(args=[1]).call()
     assert agreement["status"] == "REFUNDED"
 
-    w1 = contract.withdraw(args=[1], account=creator)
+    w1 = _as(contract, creator).withdraw(args=[1]).transact()
     assert tx_execution_succeeded(w1)
-    w2 = contract.withdraw(args=[1], account=counterparty)
+    w2 = _as(contract, counterparty).withdraw(args=[1]).transact()
     assert tx_execution_succeeded(w2)
     # duplicate withdrawal protection
-    dup = contract.withdraw(args=[1], account=creator)
+    dup = _as(contract, creator).withdraw(args=[1]).transact()
     assert tx_execution_failed(dup)
 
 
 def test_premature_refund_rejected():
     contract = load_fixture(deploy_contract)
-    accounts = get_accounts()
+    accounts = create_accounts(3)
     creator, counterparty = accounts[0], accounts[1]
-    contract.create_agreement(args=_create_args(), value=10**18, account=creator)
-    contract.match_agreement(args=[1], value=10**18, account=counterparty)
+    _as(contract, creator).create_agreement(args=_create_args()).transact(
+        value=10**18
+    )
+    _as(contract, counterparty).match_agreement(args=[1]).transact(value=10**18)
     # deadline is far in the future -- refund must be rejected now
-    result = contract.refund(args=[1], account=creator)
+    result = _as(contract, creator).refund(args=[1]).transact()
     assert tx_execution_failed(result)
 
 
@@ -179,7 +201,7 @@ def test_source_shopping_rejected_at_freeze():
     """Evidence URL that does not match the committed source policy must
     be rejected even though the agreement is otherwise ready to resolve."""
     contract = load_fixture(deploy_contract)
-    accounts = get_accounts()
+    accounts = create_accounts(3)
     creator, counterparty = accounts[0], accounts[1]
     now = int(time.time())
     args = _create_args(
@@ -188,12 +210,12 @@ def test_source_shopping_rejected_at_freeze():
         resolution_not_before=now + 3,
         resolution_deadline=now + 120,
     )
-    contract.create_agreement(args=args, value=10**18, account=creator)
-    contract.match_agreement(args=[1], value=10**18, account=counterparty)
+    _as(contract, creator).create_agreement(args=args).transact(value=10**18)
+    _as(contract, counterparty).match_agreement(args=[1]).transact(value=10**18)
     time.sleep(4)
-    result = contract.freeze_evidence(
-        args=[1, "https://some-fan-blog.example.com/winners"], account=creator
-    )
+    result = _as(contract, creator).freeze_evidence(
+        args=[1, "https://some-fan-blog.example.com/winners"]
+    ).transact()
     assert tx_execution_failed(result)
 
 
