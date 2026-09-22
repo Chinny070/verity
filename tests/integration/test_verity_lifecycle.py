@@ -157,17 +157,31 @@ def test_no_evidence_timeout_refund_and_withdrawal():
     accounts = create_accounts(3)
     creator, counterparty, stranger = accounts[0], accounts[1], accounts[2]
 
+    # Margins here must exceed real StudioNet write latency (observed
+    # 8-15s per transact() including consensus), not just wall-clock
+    # test-code time, or create_agreement's own temporal-ordering check
+    # (now < match_close_time at EXECUTION time, not submission time) can
+    # fail before the agreement is even created -- see git history for a
+    # live repro of this exact false failure.
     now = int(time.time())
     args = _create_args(
-        match_close_time=now + 2,
-        expected_event_time=now + 3,
-        resolution_not_before=now + 3,
-        resolution_deadline=now + 5,
+        match_close_time=now + 30,
+        expected_event_time=now + 35,
+        resolution_not_before=now + 40,
+        resolution_deadline=now + 50,
     )
-    _as(contract, creator).create_agreement(args=args).transact(value=10**18)
-    _as(contract, counterparty).match_agreement(args=[1]).transact(value=10**18)
+    create_result = _as(contract, creator).create_agreement(args=args).transact(
+        value=10**18
+    )
+    assert tx_execution_succeeded(create_result), create_result
+    match_result = _as(contract, counterparty).match_agreement(args=[1]).transact(
+        value=10**18
+    )
+    assert tx_execution_succeeded(match_result), match_result
 
-    time.sleep(6)  # cross the resolution deadline with no evidence ever frozen
+    # cross the resolution deadline with no evidence ever frozen
+    while int(time.time()) < now + 52:
+        time.sleep(3)
 
     # permissionless: a stranger triggers the refund
     refund_result = _as(contract, stranger).refund(args=[1]).transact()
@@ -203,16 +217,26 @@ def test_source_shopping_rejected_at_freeze():
     contract = load_fixture(deploy_contract)
     accounts = create_accounts(3)
     creator, counterparty = accounts[0], accounts[1]
+    # See test_no_evidence_timeout_refund_and_withdrawal for why these
+    # margins must exceed real StudioNet write latency, not just a few
+    # seconds of wall-clock test-code time.
     now = int(time.time())
     args = _create_args(
-        match_close_time=now + 2,
-        expected_event_time=now + 3,
-        resolution_not_before=now + 3,
+        match_close_time=now + 30,
+        expected_event_time=now + 35,
+        resolution_not_before=now + 40,
         resolution_deadline=now + 120,
     )
-    _as(contract, creator).create_agreement(args=args).transact(value=10**18)
-    _as(contract, counterparty).match_agreement(args=[1]).transact(value=10**18)
-    time.sleep(4)
+    create_result = _as(contract, creator).create_agreement(args=args).transact(
+        value=10**18
+    )
+    assert tx_execution_succeeded(create_result), create_result
+    match_result = _as(contract, counterparty).match_agreement(args=[1]).transact(
+        value=10**18
+    )
+    assert tx_execution_succeeded(match_result), match_result
+    while int(time.time()) < now + 42:
+        time.sleep(3)
     result = _as(contract, creator).freeze_evidence(
         args=[1, "https://some-fan-blog.example.com/winners"]
     ).transact()
